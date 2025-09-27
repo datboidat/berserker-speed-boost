@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Reflection;
 using BepInEx;
 using HarmonyLib;
@@ -5,56 +7,81 @@ using UnityEngine;
 
 namespace BerserkerSpeedBoost
 {
-    /// <summary>
-    /// BepInEx plugin that multiplies berserker movement and animation speeds by attaching a
-    /// BerserkerSpeedApplier component to the chosen berserker when it is started.
-    /// </summary>
-    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost", "1.0.0")]
+    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost (6x)", "1.1.0")]
     public class Plugin : BaseUnityPlugin
     {
+        private Harmony? _harmony;
+
         private void Awake()
         {
-            var harmony = new Harmony("datboidat.BerserkerSpeedBoost");
-            harmony.PatchAll();
-            Logger.LogInfo("Berserker Speed Boost plugin loaded");
-        }
+            _harmony = new Harmony("datboidat.BerserkerSpeedBoost");
+            var patchedAny = false;
 
-        /// <summary>
-        /// Harmony patch targeting BerserkerManager.StartBerserker. After a berserker is started,
-        /// this Postfix attaches the BerserkerSpeedApplier component to the chosen transform and
-        /// configures its multiplier.
-        /// </summary>
-        [HarmonyPatch]
-        private static class StartBerserkerPatch
-        {
-            static MethodBase TargetMethod()
+            // 1) Find a type whose name looks like the Berserker manager.
+            var berserkerManagerType =
+                AccessTools.AllTypes()
+                    .FirstOrDefault(t =>
+                        t.Name.Contains("Berserker", StringComparison.OrdinalIgnoreCase) &&
+                        t.Name.Contains("Manager", StringComparison.OrdinalIgnoreCase));
+
+            if (berserkerManagerType == null)
             {
-                var managerType = AccessTools.TypeByName("BerserkerManager");
-                return AccessTools.Method(managerType, "StartBerserker");
+                Logger.LogWarning("Could not find a Berserker *Manager* type to patch. Speed boost will not run.");
+                return;
             }
 
-            static void Postfix()
+            // 2) Try to patch one of the known methods that runs after the berserker is chosen/configured.
+            //    Try StartBerserker first, then fall back to SetBerserkerValues.
+            MethodInfo? target =
+                AccessTools.Method(berserkerManagerType, "StartBerserker") ??
+                AccessTools.Method(berserkerManagerType, "SetBerserkerValues");
+
+            if (target != null)
             {
-                // Obtain BerserkerManager type and the static field that holds the chosen transform
-                var managerType = AccessTools.TypeByName("BerserkerManager");
-                if (managerType == null) return;
+                var postfix = new HarmonyMethod(typeof(Plugin).GetMethod(nameof(AfterBerserkerConfigured),
+                    BindingFlags.Static | BindingFlags.NonPublic));
+                _harmony.Patch(target, postfix: postfix);
+                Logger.LogInfo($"Patched {berserkerManagerType.FullName}.{target.Name}()");
+                patchedAny = true;
+            }
 
-                var field = AccessTools.Field(managerType, "berserkerChosenTransform");
-                if (field == null) return;
+            if (!patchedAny)
+            {
+                Logger.LogWarning($"Found type {berserkerManagerType.FullName} but neither StartBerserker nor SetBerserkerValues were present.");
+            }
+        }
 
-                var chosenTransform = field.GetValue(null) as Transform;
-                if (chosenTransform == null) return;
+        private static void AfterBerserkerConfigured(object __instance)
+        {
+            try
+            {
+                Transform? t =
+                    AccessTools.Field(__instance.GetType(), "berserkerChosenTransform")?.GetValue(__instance) as Transform
+                    ?? (AccessTools.Field(__instance.GetType(), "berserkerChosen")?.GetValue(__instance) as GameObject)?.transform;
 
-                // Attach or retrieve the BerserkerSpeedApplier on the chosen transform
-                var applier = chosenTransform.gameObject.GetComponent<BerserkerEnemies.BerserkerSpeedApplier>();
-                if (applier == null)
+                t ??= AccessTools.Property(__instance.GetType(), "BerserkerTransform")?.GetValue(__instance, null) as Transform;
+
+                if (t == null)
                 {
-                    applier = chosenTransform.gameObject.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
+                    var typeName = __instance.GetType().FullName;
+                    BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoost")
+                        .LogWarning($"Could not locate chosen berserker Transform on {typeName}. Speed boost not applied.");
+                    return;
                 }
 
-                // Set the multiplier to 6f (500% increase) and optionally adjust reapply interval
+                var go = t.gameObject;
+                var applier = go.GetComponent<BerserkerEnemies.BerserkerSpeedApplier>();
+                if (applier == null) applier = go.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
                 applier.Multiplier = 6f;
                 applier.ReapplyEverySeconds = 1f;
+
+                BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoost")
+                    .LogInfo($"Applied 6x speed to berserker on {go.name}.");
+            }
+            catch (Exception ex)
+            {
+                BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoost")
+                    .LogWarning($"Failed to apply speed boost: {ex}");
             }
         }
     }
