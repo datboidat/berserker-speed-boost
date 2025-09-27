@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!-- Additional NuGet sources for packages not on nuget.org -->
     <RestoreAdditionalProjectSources>
       https://api.nuget.org/v3/index.json;
       https://nuget.bepinex.dev/v3/index.json;
@@ -18,12 +19,13 @@
 
   <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
-    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.1" PrivateAssets="all" IncludeAssets="build" />
-    <PackageReference Include="Linkoid.Repo.Plugin.Build" Version="*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.*" PrivateAssets="all" IncludeAssets="build" />
+    <PackageReference Include="Linkoid.Repo.Plugin.Build" Version="*" IncludeAssets="all" />
     <PackageReference Include="BepInEx.Core" Version="5.*" ExcludeAssets="runtime" />
     <PackageReference Include="UnityEngine.Modules" Version="2022.3.21" IncludeAssets="compile" PrivateAssets="all" />
-    <PackageReference Include="R.E.P.O.GameLibs.Steam" Version="*-*" PrivateAssets="all" Publicize="true" />
-    <PackageReference Include="HarmonyLib" Version="2.*" />
+    <PackageReference Include="R.E.P.O.GameLibs.Steam" Version="*" IncludeAssets="all" Publicize="true" />
+    <!-- Use Lib.Harmony instead of HarmonyLib to avoid missing package issues -->
+    <PackageReference Include="Lib.Harmony" Version="2.4.1" />
   </ItemGroup>
 
 </Project>
