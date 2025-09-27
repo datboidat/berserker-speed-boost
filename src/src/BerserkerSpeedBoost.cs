@@ -7,6 +7,7 @@ using UnityEngine.AI;
 
 namespace BerserkerSpeedBoost
 {
+    // Plugin that multiplies berserker speed and animation speed by 6x (500% increase).
     [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost", "1.0.0")]
     public class Plugin : BaseUnityPlugin
     {
@@ -14,7 +15,7 @@ namespace BerserkerSpeedBoost
         {
             var harmony = new Harmony("datboidat.BerserkerSpeedBoost");
             harmony.PatchAll();
-            Logger.LogInfo("Berserker Speed Boost loaded");
+            Logger.LogInfo("Berserker Speed Boost (500%) loaded");
         }
 
         [HarmonyPatch]
@@ -23,7 +24,8 @@ namespace BerserkerSpeedBoost
             static MethodBase TargetMethod()
             {
                 var managerType = AccessTools.TypeByName("BerserkerManager");
-                return AccessTools.Method(managerType, "SetBerserkerValues", new Type[] { AccessTools.TypeByName("EnemyParent"), typeof(Transform), typeof(int) });
+                return AccessTools.Method(managerType, "SetBerserkerValues",
+                    new Type[] { AccessTools.TypeByName("EnemyParent"), typeof(Transform), typeof(int) });
             }
 
             static void Postfix(Transform enemy)
@@ -51,13 +53,13 @@ namespace BerserkerSpeedBoost
             var agent = enemyObj.GetComponent<NavMeshAgent>();
             if (agent != null)
             {
-                agent.speed *= 1.3f;
-                agent.acceleration *= 1.3f;
+                agent.speed *= 6.0f;
+                agent.acceleration *= 6.0f;
             }
 
             foreach (var anim in enemyObj.GetComponentsInChildren<Animator>())
             {
-                anim.speed *= 1.3f;
+                anim.speed *= 6.0f;
             }
         }
     }
