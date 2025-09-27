@@ -10,11 +10,7 @@
 
   <PropertyGroup>
     <!-- Additional NuGet sources for packages not on nuget.org -->
-    <RestoreAdditionalProjectSources>
-      https://api.nuget.org/v3/index.json
-      https://nuget.bepinex.dev/v3/index.json
-      https://nuget.windows10ce.com/nuget/v3/index.json
-    </RestoreAdditionalProjectSources>
+    <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json;https://nuget.bepinex.dev/v3/index.json;https://nuget.windows10ce.com/nuget/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
   <ItemGroup>
