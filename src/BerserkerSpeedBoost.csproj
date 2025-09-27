@@ -11,8 +11,8 @@
   <PropertyGroup>
     <!-- Additional NuGet sources for packages not on nuget.org -->
     <RestoreAdditionalProjectSources>
-      https://api.nuget.org/v3/index.json;
-      https://nuget.bepinex.dev/v3/index.json;
+      https://api.nuget.org/v3/index.json
+      https://nuget.bepinex.dev/v3/index.json
       https://nuget.windows10ce.com/nuget/v3/index.json
     </RestoreAdditionalProjectSources>
   </PropertyGroup>
@@ -22,8 +22,9 @@
     <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.*" PrivateAssets="all" IncludeAssets="build" />
     <PackageReference Include="Linkoid.Repo.Plugin.Build" Version="*" IncludeAssets="all" />
     <PackageReference Include="BepInEx.Core" Version="5.*" ExcludeAssets="runtime" />
-    <PackageReference Include="UnityEngine.Modules" Version="2022.3.21" IncludeAssets="compile" PrivateAssets="all" />
-    <PackageReference Include="R.E.P.O.GameLibs.Steam" Version="*" IncludeAssets="all" Publicize="true" />
+    <PackageReference Include="UnityEngine.Modules" Version="2022.3.2" IncludeAssets="compile" PrivateAssets="all" />
+    <!-- Specify the pre-release version for R.E.P.O.GameLibs.Steam to avoid NU1103 error -->
+    <PackageReference Include="R.E.P.O.GameLibs.Steam" Version="0.2.1-ngd.0" IncludeAssets="all" Publicize="true" />
     <!-- Use Lib.Harmony instead of HarmonyLib to avoid missing package issues -->
     <PackageReference Include="Lib.Harmony" Version="2.4.1" />
   </ItemGroup>
