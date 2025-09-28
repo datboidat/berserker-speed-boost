@@ -17,6 +17,11 @@ namespace BerserkerEnemies
         /// </summary>
         public float Multiplier = 6f;
 
+        /// <summary>
+        /// Unused in the continuous update mode but left for compatibility with other mods that expect this field.
+        /// </summary>
+        public float ReapplyEverySeconds = 1f;
+
         NavMeshAgent[] _agents = Array.Empty<NavMeshAgent>();
         Animator[] _anims = Array.Empty<Animator>();
 
