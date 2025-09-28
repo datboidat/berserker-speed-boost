@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace BerserkerSpeedBoost
 {
-    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost (6x)", "1.3.1")]
+    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost (1.3x)", "1.3.3")]
     [BepInDependency("FNKTLabs.BerserkerEnemies", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
@@ -68,7 +68,7 @@ namespace BerserkerSpeedBoost
                 var go = t.gameObject;
                 var applier = go.GetComponent<BerserkerEnemies.BerserkerSpeedApplier>();
                 if (applier == null) applier = go.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
-                applier.Multiplier = 6f;                 // 500% increase (6x)
+                applier.Multiplier = 1.3f;                 // 30% increase (1.3x)
                 applier.ReapplyEverySeconds = 1f;        // keep overrides sticky
 
                 // Optional: log once when applied so the user can confirm in console
