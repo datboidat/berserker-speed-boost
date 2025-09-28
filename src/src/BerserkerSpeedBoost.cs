@@ -1,5 +1,5 @@
 using System;
-using System.Linq;
+using System.Collections;
 using System.Reflection;
 using BepInEx;
 using HarmonyLib;
@@ -7,76 +7,71 @@ using UnityEngine;
 
 namespace BerserkerSpeedBoost
 {
-    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost (6x)", "1.1.0")]
+    [BepInPlugin("datboidat.BerserkerSpeedBoost", "Berserker Speed Boost (6x)", "1.3.0")]
+    [BepInDependency("BerserkerEnemies", BepInDependency.DependencyFlags.HardDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        private Harmony? _harmony;
+        private Harmony _harmony;
+        private Coroutine _patchCoroutine;
 
         private void Awake()
         {
             _harmony = new Harmony("datboidat.BerserkerSpeedBoost");
-            var patchedAny = false;
+            _patchCoroutine = StartCoroutine(PatchWhenLoaded());
+            Logger.LogInfo("BerserkerSpeedBoost plugin loaded; waiting for BerserkerController...");
+        }
 
-            // 1) Find a type whose name looks like the Berserker manager.
-            var berserkerManagerType =
-                AccessTools.AllTypes()
-                    .FirstOrDefault(t =>
-                        t.Name.Contains("Berserker", StringComparison.OrdinalIgnoreCase) &&
-                        t.Name.Contains("Manager", StringComparison.OrdinalIgnoreCase));
-
-            if (berserkerManagerType == null)
+        private IEnumerator PatchWhenLoaded()
+        {
+            Type controllerType = null;
+            for (int i = 0; i < 60; i++)
             {
-                Logger.LogWarning("Could not find a Berserker *Manager* type to patch. Speed boost will not run.");
-                return;
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    controllerType = assembly.GetType("BerserkerController")
+                        ?? assembly.GetType("BerserkerEnemies.BerserkerController")
+                        ?? assembly.GetType("hypn.BerserkerEnemies.BerserkerController");
+                    if (controllerType != null)
+                        break;
+                }
+                if (controllerType != null)
+                    break;
+                yield return null;
             }
 
-            // 2) Try to patch one of the known methods that runs after the berserker is chosen/configured.
-            //    Try StartBerserker first, then fall back to SetBerserkerValues.
-            MethodInfo? target =
-                AccessTools.Method(berserkerManagerType, "StartBerserker") ??
-                AccessTools.Method(berserkerManagerType, "SetBerserkerValues");
+            if (controllerType == null)
+            {
+                Logger.LogWarning("Could not find BerserkerController to patch. Speed boost will not run.");
+                yield break;
+            }
+
+            MethodInfo target = AccessTools.Method(controllerType, "Awake")
+                ?? AccessTools.Method(controllerType, "Start");
 
             if (target != null)
             {
-                var postfix = new HarmonyMethod(typeof(Plugin).GetMethod(nameof(AfterBerserkerConfigured),
-                    BindingFlags.Static | BindingFlags.NonPublic));
-                _harmony.Patch(target, postfix: postfix);
-                Logger.LogInfo($"Patched {berserkerManagerType.FullName}.{target.Name}()");
-                patchedAny = true;
+                MethodInfo postfix = typeof(Plugin).GetMethod(nameof(ControllerAwakePostfix),
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
+                Logger.LogInfo($"Patched {controllerType.FullName}.{target.Name}()");
             }
-
-            if (!patchedAny)
+            else
             {
-                Logger.LogWarning($"Found type {berserkerManagerType.FullName} but neither StartBerserker nor SetBerserkerValues were present.");
+                Logger.LogWarning($"Could not find Awake/Start on {controllerType.FullName}");
             }
         }
 
-        private static void AfterBerserkerConfigured(object __instance)
+        private static void ControllerAwakePostfix(MonoBehaviour __instance)
         {
             try
             {
-                Transform? t =
-                    AccessTools.Field(__instance.GetType(), "berserkerChosenTransform")?.GetValue(__instance) as Transform
-                    ?? (AccessTools.Field(__instance.GetType(), "berserkerChosen")?.GetValue(__instance) as GameObject)?.transform;
-
-                t ??= AccessTools.Property(__instance.GetType(), "BerserkerTransform")?.GetValue(__instance, null) as Transform;
-
-                if (t == null)
-                {
-                    var typeName = __instance.GetType().FullName;
-                    BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoost")
-                        .LogWarning($"Could not locate chosen berserker Transform on {typeName}. Speed boost not applied.");
-                    return;
-                }
-
-                var go = t.gameObject;
+                var go = __instance.gameObject;
                 var applier = go.GetComponent<BerserkerEnemies.BerserkerSpeedApplier>();
                 if (applier == null) applier = go.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
                 applier.Multiplier = 6f;
                 applier.ReapplyEverySeconds = 1f;
-
                 BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoost")
-                    .LogInfo($"Applied 6x speed to berserker on {go.name}.");
+                    .LogInfo($"Attached speed applier to {go.name}");
             }
             catch (Exception ex)
             {
