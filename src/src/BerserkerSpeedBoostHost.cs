@@ -1,71 +1,77 @@
 using System;
+using System.Collections;
 using System.Linq;
 using System.Reflection;
-using System.Collections;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
 
 namespace BerserkerSpeedBoostHost
 {
-    [BepInPlugin("datboidat.BerserkerSpeedBoostHost", "Berserker Speed Boost Host (1.3x)", "1.3.4")]
+    [BepInPlugin("datboidat.BerserkerSpeedBoostHost", "Berserker Speed Boost Host (1.3x)", "1.3.5")]
     [BepInDependency("FNKTLabs.BerserkerEnemies", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        private Harmony? _harmony;
-
-        static bool IsClientNotHost()
-        {
-            var pn = AccessTools.TypeByName("Photon.Pun.PhotonNetwork") ?? AccessTools.TypeByName("PhotonNetwork");
-            if (pn == null) return false;
-            var prop = pn.GetProperty("IsMasterClient", BindingFlags.Public | BindingFlags.Static);
-            if (prop == null) return false;
-            var val = prop.GetValue(null, null);
-            return val is bool b && b == false;
-        }
+        private Harmony _harmony;
 
         private void Awake()
         {
+            // Host-only guard: skip on clients (non-master)
             if (IsClientNotHost())
             {
-                Logger.LogInfo("[BerserkerSpeedBoostHost] Client detected; skipping speed boost.");
+                Logger.LogInfo("BerserkerSpeedBoostHost: Client detected; skipping speed boost.");
                 return;
             }
 
             _harmony = new Harmony("datboidat.BerserkerSpeedBoostHost");
             bool patched = false;
 
+            // find berserker manager type
             var managerType = AccessTools.AllTypes().FirstOrDefault(t =>
                 t.Name.IndexOf("Berserker", StringComparison.OrdinalIgnoreCase) >= 0 &&
                 t.Name.IndexOf("Manager", StringComparison.OrdinalIgnoreCase) >= 0);
 
             if (managerType != null)
             {
-                MethodInfo target = AccessTools.Method(managerType, "StartBerserker") ??
+                MethodInfo method = AccessTools.Method(managerType, "StartBerserker") ??
                                     AccessTools.Method(managerType, "SetBerserkerValues");
 
-                if (target != null)
+                if (method != null)
                 {
-                    var postfix = new HarmonyMethod(typeof(Plugin).GetMethod(nameof(AfterBerserkerConfigured), BindingFlags.NonPublic | BindingFlags.Static));
-                    _harmony.Patch(target, postfix: postfix);
-                    Logger.LogInfo($"Patched {managerType.FullName}.{target.Name}()");
+                    var postfix = new HarmonyMethod(typeof(Plugin).GetMethod(nameof(AfterBerserkerConfigured), BindingFlags.Static | BindingFlags.NonPublic));
+                    _harmony.Patch(method, postfix: postfix);
+                    Logger.LogInfo($"BerserkerSpeedBoostHost: Patched {managerType.FullName}.{method.Name}");
                     patched = true;
                 }
             }
 
             if (!patched)
             {
-                Logger.LogWarning("Could not find a Berserker *Manager* type to patch. Speed boost will not run.");
+                Logger.LogWarning("BerserkerSpeedBoostHost: Could not find Berserker manager type or method to patch.");
             }
+
+            // Start coroutine to unpatch broken HurtCollider patches after load
+            StartCoroutine(UnpatchBrokenHurtColliderCoroutine());
         }
 
-        private void Start()
+        private static bool IsClientNotHost()
         {
-            StartCoroutine(UnpatchHurtColliderOverFrames());
+            // Check PhotonNetwork.IsMasterClient if available
+            var pn = AccessTools.TypeByName("Photon.Pun.PhotonNetwork") ?? AccessTools.TypeByName("PhotonNetwork");
+            if (pn == null) return false;
+            var prop = pn.GetProperty("IsMasterClient", BindingFlags.Public | BindingFlags.Static);
+            if (prop == null) return false;
+            var value = prop.GetValue(null, null);
+            if (value is bool flag)
+            {
+                return !flag; // true if not master (client)
+            }
+            return false;
         }
 
-        private IEnumerator UnpatchHurtColliderOverFrames()
+        private IEnumerator UnpatchBrokenHurtColliderCoroutine()
         {
+            // Delay across frames to allow other mods to patch first
             for (int i = 0; i < 5; i++)
             {
                 TryUnpatchBrokenHurtCollider();
@@ -73,68 +79,48 @@ namespace BerserkerSpeedBoostHost
             }
         }
 
-        private void TryUnpatchBrokenHurtCollider()
+        private static void TryUnpatchBrokenHurtCollider()
         {
             try
             {
                 var hc = AccessTools.TypeByName("HurtCollider");
                 if (hc == null)
                 {
-                    Logger.LogWarning("[BerserkerSpeedBoostHost] HurtCollider type not found.");
                     return;
                 }
 
                 var targets = hc.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                                 .Where(m => m.Name == "EnemyHurt")
                                 .ToArray();
-                if (targets.Length == 0)
-                {
-                    Logger.LogWarning("[BerserkerSpeedBoostHost] EnemyHurt method not found.");
-                    return;
-                }
+                if (targets.Length == 0) return;
 
-                var unpatchHarmony = new Harmony("datboidat.BSB.UnpatchHurtCollider");
-                int totalUnpatched = 0;
-
+                var harmony = new Harmony("datboidat.BerserkerSpeedBoostHost.Unpatcher");
                 foreach (var target in targets)
                 {
                     var info = Harmony.GetPatchInfo(target);
                     if (info == null) continue;
-
-                    var allPatches = info.Prefixes.Concat(info.Postfixes).Concat(info.Transpilers).ToArray();
-                    foreach (var p in allPatches)
+                    var patches = info.Prefixes.Concat(info.Postfixes).Concat(info.Transpilers).ToArray();
+                    foreach (var p in patches)
                     {
-                        var mi = p.Patch;
-                        var owner = p.owner ?? "";
-                        var asmName = mi?.DeclaringType?.Assembly?.GetName()?.Name ?? "";
-                        var full = mi?.DeclaringType?.FullName + "." + mi?.Name;
-
+                        var mi = p.PatchMethod;
+                        string owner = p.owner ?? "";
+                        string asmName = mi?.DeclaringType?.Assembly?.GetName()?.Name ?? "";
+                        string fullName = mi?.DeclaringType?.FullName + "." + mi?.Name;
                         bool looksBerserker =
                             owner.IndexOf("Berserker", StringComparison.OrdinalIgnoreCase) >= 0 ||
                             asmName.IndexOf("Berserker", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            (full ?? "").IndexOf("ModPatch.EnemyHurt", StringComparison.OrdinalIgnoreCase) >= 0;
+                            (fullName != null && fullName.IndexOf("ModPatch.EnemyHurt", StringComparison.OrdinalIgnoreCase) >= 0);
 
                         if (looksBerserker && mi != null)
                         {
-                            unpatchHarmony.Unpatch(target, mi);
-                            totalUnpatched++;
-                            Logger.LogInfo($"[BerserkerSpeedBoostHost] Unpatched {full} (owner:{owner}) from {target.DeclaringType?.FullName}.{target.Name}");
+                            harmony.Unpatch(target, mi);
                         }
                     }
                 }
-
-                if (totalUnpatched == 0)
-                {
-                    Logger.LogInfo("[BerserkerSpeedBoostHost] No matching HurtCollider patches found to unpatch.");
-                }
-                else
-                {
-                    Logger.LogInfo($"[BerserkerSpeedBoostHost] Unpatched {totalUnpatched} broken HurtCollider patch(es).");
-                }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Logger.LogWarning($"[BerserkerSpeedBoostHost] Unpatch attempt failed: {ex}");
+                // ignore
             }
         }
 
@@ -142,34 +128,31 @@ namespace BerserkerSpeedBoostHost
         {
             try
             {
+                // Try to get berserker transform from known fields/properties
                 Transform t =
                     AccessTools.Field(__instance.GetType(), "berserkerChosenTransform")?.GetValue(__instance) as Transform
-                    ?? (AccessTools.Field(__instance.GetType(), "berserkerChosen")?.GetValue(__instance) as GameObject)?.transform;
-
-                t ??= AccessTools.Property(__instance.GetType(), "BerserkerTransform")?.GetValue(__instance, null) as Transform;
+                    ?? (AccessTools.Field(__instance.GetType(), "berserkerChosen")?.GetValue(__instance) as GameObject)?.transform
+                    ?? AccessTools.Property(__instance.GetType(), "BerserkerTransform")?.GetValue(__instance, null) as Transform;
 
                 if (t == null)
                 {
-                    var typeName = __instance.GetType().FullName;
-                    BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoostHost")
-                        .LogWarning($"Could not locate chosen berserker Transform on {typeName}. Speed boost not applied.");
                     return;
                 }
 
                 var go = t.gameObject;
                 var applier = go.GetComponent<BerserkerEnemies.BerserkerSpeedApplier>();
-                if (applier == null) applier = go.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
+                if (applier == null)
+                {
+                    applier = go.AddComponent<BerserkerEnemies.BerserkerSpeedApplier>();
+                }
 
-                applier.Multiplier = 1.3f;
+                applier.Multiplier = 1.3f; // 30% increase
                 applier.ReapplyEverySeconds = 1f;
 
-                BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoostHost")
-                    .LogInfo($"Applied 1.3x speed to berserker on {go.name}.");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                BepInEx.Logging.Logger.CreateLogSource("BerserkerSpeedBoostHost")
-                    .LogWarning($"Failed to apply speed boost: {ex}");
+                // ignore
             }
         }
     }
